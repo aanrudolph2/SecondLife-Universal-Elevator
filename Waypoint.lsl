@@ -8,55 +8,71 @@
  * 
  */
 
-key parent = NULL_KEY;
+// USER SETTINGS
+
+vector door_direction = <1, 0, 0>; // REQUIRED: local direction each door slides (default: +X axis)
+string door_name = "door"; // REQUIRED: Name of each door (Reset script if the linkset changes)
+string call_btn_name = "call"; // REQUIRED: Name of each call button (Reset script if the linkset changes)
+
+vector idle_color = <0.631, 0.820, 1.000>; // REQUIRED: Color of call buttons in idle state
+vector call_color = <1.000, 0.631, 0.631>; // REQUIRED: Color of call buttons in calling state
+
+integer numSteps = 20; // REQUIRED: Number of steps in door animation
+
+// MAIN SCRIPT
+
+
+string parent_url = "";
+key register_req;
+key call_req;
 
 list doors;
 
 list call_buttons;
 
-integer doorSteps = 5;
+integer idle = TRUE;
 
 doors_open()
 {
-    integer i;
-    
-    integer x;
-    
-    for(x = 0; x <= 5; x ++)
+    integer step;
+    for(step = 0; step < numSteps; step ++)
     {
-        for(i = 0; i < llGetListLength(doors); i ++)
+        list tmp;
+        integer i;
+        for(i = 0; i < llGetListLength(doors) / 4; i ++)
         {
-            integer currDoor = llList2Integer(doors, 2*i);
-            vector currDoorPos = llList2Vector(doors, 2*i + 1);
+            integer currLink = llList2Integer(doors, i * 4);
             
-            rotation currDoorRot = llList2Rot(llGetLinkPrimitiveParams(currDoor, [PRIM_ROT_LOCAL]), 0);
-            vector currDoorSize = llList2Vector(llGetLinkPrimitiveParams(currDoor, [PRIM_SIZE]), 0);
+            vector pos = llList2Vector(doors, i * 4 + 1);
+            rotation rot = llList2Rot(doors, i * 4 + 2);
+            vector size = llList2Vector(doors, i * 4 + 3);
             
-            llSetLinkPrimitiveParamsFast(currDoor, [PRIM_POS_LOCAL, currDoorPos + <0, 0, x * (currDoorSize.z / (float)doorSteps)>*currDoorRot]);
-            llSleep(0.01);
+            tmp += [PRIM_LINK_TARGET, currLink, PRIM_POS_LOCAL, (llFabs(size * door_direction) * step) / (float)numSteps * door_direction*rot + pos];
         }
+        llSetLinkPrimitiveParamsFast(0, tmp);
+        llSleep(0.05);
     }
 }
 
 doors_close()
 {
-    integer i;
-    
-    integer x;
-    
-    for(x = 5; x >= 0; x --)
+    integer step;
+    for(step = numSteps - 1; step >= 0; step --)
     {
-        for(i = 0; i < llGetListLength(doors); i ++)
+        list tmp;
+        integer i;
+        for(i = 0; i < llGetListLength(doors) / 4; i ++)
         {
-            integer currDoor = llList2Integer(doors, 2*i);
-            vector currDoorPos = llList2Vector(doors, 2*i + 1);
+            integer currLink = llList2Integer(doors, i * 4);
             
-            rotation currDoorRot = llList2Rot(llGetLinkPrimitiveParams(currDoor, [PRIM_ROT_LOCAL]), 0);
-            vector currDoorSize = llList2Vector(llGetLinkPrimitiveParams(currDoor, [PRIM_SIZE]), 0);
+            vector pos = llList2Vector(doors, i * 4 + 1);
+            rotation rot = llList2Rot(doors, i * 4 + 2);
+            vector size = llList2Vector(doors, i * 4 + 3);
             
-            llSetLinkPrimitiveParamsFast(currDoor, [PRIM_POS_LOCAL, currDoorPos + <0, 0, x * (currDoorSize.z / (float)doorSteps)>*currDoorRot]);
-            llSleep(0.01);
+            tmp += [PRIM_LINK_TARGET, currLink, PRIM_POS_LOCAL, (llFabs(size * door_direction) * step) / (float)numSteps * door_direction*rot + pos];
         }
+        llSetLinkPrimitiveParamsFast(0, tmp);
+        llSleep(0.05);
     }
 }
 
@@ -68,11 +84,14 @@ default
         
         while(--link > 1)
         {
-            if(llGetLinkName(link) == "door")
+            if(llGetLinkName(link) == door_name)
             {
-                doors += [link, llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0)];
+                vector localPos = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
+                rotation localRot = llList2Rot(llGetLinkPrimitiveParams(link, [PRIM_ROT_LOCAL]), 0);
+                vector localSize = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_SIZE]), 0);
+                doors += [link, localPos, localRot, localSize];
             }
-            if(llGetLinkName(link) == "Call Button")
+            if(llGetLinkName(link) == call_btn_name)
             {
                 call_buttons += link;
             }
@@ -85,17 +104,20 @@ default
         list data = llCSV2List(msg);
         if(llList2String(data, 0) == "WAYPOINT DETECT" && llList2String(data, 1) == llGetObjectName())
         {
-            llRegionSayTo(id, -25, llGetObjectDesc());
-            parent = id;
+            parent_url = llList2String(data, 2);
+            
+            register_req = llHTTPRequest(parent_url, [HTTP_METHOD, "POST"], llList2CSV([llGetObjectDesc(), llGetKey()]));
+            
             // Uncomment for debug
-            //llOwnerSay("Parent ID: " + (string)parent);
+            //llOwnerSay("Parent URL: " + (string)parent_url);
         }
         else if(llList2String(data, 0) == "OFF")
         {
             integer i;
             for(i = 0; i < llGetListLength(call_buttons); i ++)
             {
-                llSetLinkPrimitiveParamsFast(llList2Integer(call_buttons, i), [PRIM_COLOR, ALL_SIDES, <0.631, 0.820, 1.000>, 1.0]);
+                llSetLinkPrimitiveParamsFast(llList2Integer(call_buttons, i), [PRIM_COLOR, ALL_SIDES, idle_color, 1.0]);
+                idle = TRUE;
             }
             doors_open();
         }
@@ -104,22 +126,53 @@ default
             doors_close();
         }
     }
-    touch_start(integer num)
+    http_response(key id, integer status, list meta, string body)
     {
-        if(parent != NULL_KEY && llListFindList(call_buttons, [llDetectedLinkNumber(0)]) > -1)
+        if(id == register_req)
         {
-            
-            llRegionSayTo(parent, -20, llGetObjectDesc());
-            integer i;
-            for(i = 0; i < llGetListLength(call_buttons); i ++)
+            if(status == 200)
             {
-                llSetLinkPrimitiveParamsFast(llList2Integer(call_buttons, i), [PRIM_COLOR, ALL_SIDES, <1.000, 0.631, 0.631>, 1.0]);
+                if(body == "Success")
+                {
+                    // Uncomment for debug
+                    //llOwnerSay("Waypoint " + llGetObjectDesc() + " is registered");
+                }
+                else
+                {
+                    //llOwnerSay("Registration error.");
+                }
+            }
+            else
+            {
+                //llOwnerSay("Registration error. Does your lift exist yet?");
             }
         }
-        else
+        else if(id == call_req)
         {
-            // Uncomment for debug
-            //llOwnerSay("No parent.");
+            if(status == 200)
+            {
+                integer i;
+                for(i = 0; i < llGetListLength(call_buttons); i ++)
+                {
+                    llSetLinkPrimitiveParamsFast(llList2Integer(call_buttons, i), [PRIM_COLOR, ALL_SIDES, call_color, 1.0]);
+                    idle = FALSE;
+                }
+            }
+        }
+    }
+    touch_start(integer num)
+    {
+        if(idle)
+        {
+            if(parent_url != "" && llListFindList(call_buttons, [llDetectedLinkNumber(0)]) > -1)
+            {
+                call_req = llHTTPRequest(parent_url, [HTTP_METHOD, "PUT"], llList2CSV([llGetObjectDesc(), llGetKey()]));
+            }
+            else
+            {
+                // Uncomment for debug
+                //llOwnerSay("No parent.");
+            }
         }
     }
 }
