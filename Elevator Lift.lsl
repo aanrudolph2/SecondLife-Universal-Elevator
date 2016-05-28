@@ -3,30 +3,84 @@
  * Description of Lift must match names of Waypoints
  * If lift script must be reset, do not reset waypoints.
  *
- * Floor Call buttons must be named "button"
+ * Floor Call buttons must be named "button" (default)
+ * Lift Cab Doors must be named "Door" (default)
  * Descriptions must be a numeral corresponding to the button's
  * respective waypoint
  *
  */
 
-integer waypoint_detect_listener;
-integer call_listener;
+// USER SETTINGS
 
+vector door_direction = <1, 0, 0>; // REQUIRED: local direction each door slides (default: +X axis)
+string door_name = "door"; // REQUIRED: Name of each door (Reset script if the linkset changes or names change)
+string btn_name = "button"; // REQUIRED: Name of each button (No reset required if names change)
+
+string lift_start_snd = "e85eec78-74e9-e0d3-62a7-e609c37ef6b3"; // OPTIONAL: Sound to use when lift starts moving
+string lift_stop_snd = "d1b034c2-c7a2-35a0-81db-6fffe03b6fe5"; // OPTIONAL: Sound to use when lift stops moving
+string lift_move_snd = "9bd30961-fee3-a546-c786-222cc7c8cbde"; // OPTIONAL: Sound to loop as lift moves
+
+integer numSteps = 20; // REQUIRED: Number of steps in door animation
+
+// MAIN SCRIPT
+
+list doors = [];
 list waypoints = [];
-
 list stop_queue = [];
 
-integer SORT_LIST = TRUE;
-
 integer is_moving = FALSE;
-
 key target_id;
-
 vector target_pos;
+
+key http_url_req;
+string call_req_url;
+
+doors_open()
+{
+    integer step;
+    for(step = 0; step < numSteps; step ++)
+    {
+        list tmp;
+        integer i;
+        for(i = 0; i < llGetListLength(doors) / 4; i ++)
+        {
+            integer currLink = llList2Integer(doors, i * 4);
+            
+            vector pos = llList2Vector(doors, i * 4 + 1);
+            rotation rot = llList2Rot(doors, i * 4 + 2);
+            vector size = llList2Vector(doors, i * 4 + 3);
+            
+            tmp += [PRIM_LINK_TARGET, currLink, PRIM_POS_LOCAL, (llFabs(size * door_direction) * step) / (float)numSteps * door_direction*rot + pos];
+        }
+        llSetLinkPrimitiveParamsFast(0, tmp);
+        llSleep(0.05);
+    }
+}
+
+doors_close()
+{
+    integer step;
+    for(step = numSteps - 1; step >= 0; step --)
+    {
+        list tmp;
+        integer i;
+        for(i = 0; i < llGetListLength(doors) / 4; i ++)
+        {
+            integer currLink = llList2Integer(doors, i * 4);
+            
+            vector pos = llList2Vector(doors, i * 4 + 1);
+            rotation rot = llList2Rot(doors, i * 4 + 2);
+            vector size = llList2Vector(doors, i * 4 + 3);
+            
+            tmp += [PRIM_LINK_TARGET, currLink, PRIM_POS_LOCAL, (llFabs(size * door_direction) * step) / (float)numSteps * door_direction*rot + pos];
+        }
+        llSetLinkPrimitiveParamsFast(0, tmp);
+        llSleep(0.05);
+    }
+}
 
 move_to_floor(vector pos)
 {
-    // llOwnerSay("Moving to position: " + (string)pos);
     llTarget(pos, 1.0);
     
     vector target = pos - llGetPos();
@@ -38,9 +92,11 @@ move_to_floor(vector pos)
     if(time >= 0.1)
     {
         llSetKeyframedMotion([target, frames*time], [KFM_DATA, KFM_TRANSLATION]);
-        llPlaySound("e85eec78-74e9-e0d3-62a7-e609c37ef6b3", 0.5);
+        if(lift_start_snd)
+            llPlaySound(lift_start_snd, 0.5);
         llSleep(0.1);
-        llLoopSound("9bd30961-fee3-a546-c786-222cc7c8cbde", 0.5);
+        if(lift_move_snd)
+            llLoopSound(lift_move_snd, 0.5);
     }
 }
 
@@ -52,10 +108,13 @@ check_and_move()
         {
             llRegionSayTo(target_id, -25, "CLOSE");
         }
-        integer move_idx = llList2Integer(stop_queue, 0);
-        target_id = llList2Key(stop_queue, 1);
+        target_id = (key)llList2String(stop_queue, 1);
         target_pos = llList2Vector(llGetObjectDetails(target_id, [OBJECT_POS]), 0);
         stop_queue = llDeleteSubList(stop_queue, 0, 1);
+        
+        doors_close();
+        llSleep(0.5);
+        
         move_to_floor(target_pos);
     }
 }
@@ -70,54 +129,81 @@ default
     state_entry()
     {
         llSetSoundQueueing(TRUE);
-        waypoint_detect_listener = llListen(-25, "", "", "");
-        call_listener = llListen(-20, "", "", "");
-        llRegionSay(-25, llList2CSV(["WAYPOINT DETECT", llGetObjectDesc()]));
+        http_url_req = llRequestURL();
         
-        llSetKeyframedMotion([ZERO_VECTOR, 1], [KFM_DATA, KFM_TRANSLATION]);
-        llSetTimerEvent(2.0);
-    }
-    listen(integer chan, string name, key id, string msg)
-    {
-        if(chan == -25 && name == llGetObjectDesc())
+        integer link = llGetNumberOfPrims() + 1;
+        while(--link > 0)
         {
-            // Waypoint response. Msg is the floor identifier
-            list identifier = [(integer)msg, id];
-            if(llListFindList(waypoints, identifier) < 0)
+            if(llGetLinkName(link) == door_name)
             {
-                waypoints += identifier;
+                vector localPos = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
+                rotation localRot = llList2Rot(llGetLinkPrimitiveParams(link, [PRIM_ROT_LOCAL]), 0);
+                vector localSize = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_SIZE]), 0);
+                doors += [link, localPos, localRot, localSize];
             }
         }
-        if(chan == -20)
+        
+        llSetKeyframedMotion([ZERO_VECTOR, 1], [KFM_DATA, KFM_TRANSLATION]);
+    }
+    
+    changed(integer chg)
+    {
+        if(chg & CHANGED_REGION_START)
         {
-            // Call request. Msg is floor identifier. Must correspond to existing registered waypoint.
-            integer index = llListFindList(waypoints, [(integer)msg]);
-            if(index >= 0)
+            http_url_req = llRequestURL();
+        }
+    }
+    
+    http_request(key id, string method, string body)
+    {
+        if(id == http_url_req && method == URL_REQUEST_GRANTED)
+        {
+            call_req_url = body;
+            
+            llRegionSay(-25, llList2CSV(["WAYPOINT DETECT", llGetObjectDesc(), call_req_url]));
+        }
+        else
+        {
+            // Waypoint Registration
+            if(method == "POST")
             {
-                // Uncomment for debug
-                // llOwnerSay("Request for floor: " + msg);
-                
+                list identifier = llCSV2List(body);
+                if(llListFindList(waypoints, identifier) < 0)
+                {
+                    waypoints += identifier;
+                    llHTTPResponse(id, 200, "Success");
+                }
+                else
+                {
+                    llHTTPResponse(id, 200, "Failure");
+                }
+            }
+            // Call to floor
+            else if(method == "PUT")
+            {
+                integer floor_req = (integer)llList2String(llCSV2List(body), 0);
                 // If last waypoint is not the same as this one (person didn't hit button more than once)
-                if(llList2Integer(stop_queue, -1) != (integer)msg)
+                if((integer)llList2String(stop_queue, -2) != floor_req)
                 {
                     // Enqueue floor onto stop queue
-                    stop_queue += [(integer)msg - 1, id];
+                    stop_queue += llCSV2List(body);
+                    llHTTPResponse(id, 200, "OK");
+                    check_and_move();
                 }
-                check_and_move();
-            }
-            else
-            {
-                // Uncomment for debug
-                // llOwnerSay("Request for unknown floor: " + msg);
+                else
+                {
+                    llHTTPResponse(id, 208, "Already Reported");
+                }
             }
         }
     }
     touch_start(integer num)
     {
-        if(llGetLinkName(llDetectedLinkNumber(0)) == "button")
+        if(llGetLinkName(llDetectedLinkNumber(0)) == btn_name)
         {
-            integer move_idx = (integer)llGetLinkDesc(llDetectedLinkNumber(0)) - 1;
-            stop_queue = [move_idx, llList2Key(waypoints, 2*(move_idx) + 1)] + stop_queue;
+            string move_idx = llGetLinkDesc(llDetectedLinkNumber(0));
+            integer waypoint_start_idx = llListFindList(waypoints, [move_idx]);
+            stop_queue = llList2List(waypoints, waypoint_start_idx, waypoint_start_idx + 1) + stop_queue;
             check_and_move();
         }
     }
@@ -125,9 +211,6 @@ default
     {
         if(is_moving)
         {
-            is_moving = FALSE;
-            if(target_id != NULL_KEY)
-                llRegionSayTo(target_id, -25, "OFF");
             llTargetRemove(target);
             llStopSound();
             
@@ -139,19 +222,22 @@ default
             llSetKeyframedMotion([], [KFM_COMMAND, KFM_CMD_STOP]);
             
             llSetPos(targPos);
-            llPlaySound("d1b034c2-c7a2-35a0-81db-6fffe03b6fe5", 0.5);
-            llSleep(5.0);
-            check_and_move();
+            llSleep(0.5);
+            
+            if(target_id != NULL_KEY)
+                llRegionSayTo(target_id, -25, "OFF");
+            
+            doors_open();
+            
+            if(lift_stop_snd)
+                llPlaySound(lift_stop_snd, 0.5);
+            llSetTimerEvent(5.0);
         }
     }
     timer()
     {
-        if(SORT_LIST)
-        {
-            waypoints = llListSort(waypoints, 2, TRUE);
-            // llOwnerSay("Waypoints: " + llList2CSV(waypoints));
-            SORT_LIST = FALSE;
-            llSetTimerEvent(0);
-        }
+        llSetTimerEvent(0.0);
+        is_moving = FALSE;
+        check_and_move();
     }
 }
