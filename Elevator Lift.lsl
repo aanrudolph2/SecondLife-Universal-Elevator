@@ -124,6 +124,24 @@ string llGetLinkDesc(integer num)
     return llList2String(llGetLinkPrimitiveParams(num, [PRIM_DESC]), 0);
 }
 
+get_links()
+{
+    doors_close();
+    doors = [];
+    
+    integer link = llGetNumberOfPrims() + 1;
+    while(--link > 0)
+    {
+        if(llGetLinkName(link) == door_name)
+        {
+            vector localPos = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
+            rotation localRot = llList2Rot(llGetLinkPrimitiveParams(link, [PRIM_ROT_LOCAL]), 0);
+            vector localSize = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_SIZE]), 0);
+            doors += [link, localPos, localRot, localSize];
+        }
+    }
+}
+
 default
 {
     state_entry()
@@ -131,17 +149,7 @@ default
         llSetSoundQueueing(TRUE);
         http_url_req = llRequestURL();
         
-        integer link = llGetNumberOfPrims() + 1;
-        while(--link > 0)
-        {
-            if(llGetLinkName(link) == door_name)
-            {
-                vector localPos = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
-                rotation localRot = llList2Rot(llGetLinkPrimitiveParams(link, [PRIM_ROT_LOCAL]), 0);
-                vector localSize = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_SIZE]), 0);
-                doors += [link, localPos, localRot, localSize];
-            }
-        }
+        get_links();
         
         llSetKeyframedMotion([ZERO_VECTOR, 1], [KFM_DATA, KFM_TRANSLATION]);
     }
@@ -151,6 +159,10 @@ default
         if(chg & CHANGED_REGION_START)
         {
             http_url_req = llRequestURL();
+        }
+        else if(chg & CHANGED_LINK)
+        {
+            
         }
     }
     

@@ -76,26 +76,35 @@ doors_close()
     }
 }
 
+get_links()
+{
+    call_buttons = [];
+    doors = [];
+    
+    integer link = llGetNumberOfPrims() + 1;
+    
+    while(--link > 1)
+    {
+        if(llGetLinkName(link) == door_name)
+        {
+            vector localPos = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
+            rotation localRot = llList2Rot(llGetLinkPrimitiveParams(link, [PRIM_ROT_LOCAL]), 0);
+            vector localSize = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_SIZE]), 0);
+            doors += [link, localPos, localRot, localSize];
+        }
+        if(llGetLinkName(link) == call_btn_name)
+        {
+            call_buttons += link;
+            llSetLinkPrimitiveParamsFast(link, [PRIM_COLOR, ALL_SIDES, idle_color, 1.0]);
+        }
+    }
+}
+
 default
 {
     state_entry()
     {
-        integer link = llGetNumberOfPrims() + 1;
-        
-        while(--link > 1)
-        {
-            if(llGetLinkName(link) == door_name)
-            {
-                vector localPos = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_POS_LOCAL]), 0);
-                rotation localRot = llList2Rot(llGetLinkPrimitiveParams(link, [PRIM_ROT_LOCAL]), 0);
-                vector localSize = llList2Vector(llGetLinkPrimitiveParams(link, [PRIM_SIZE]), 0);
-                doors += [link, localPos, localRot, localSize];
-            }
-            if(llGetLinkName(link) == call_btn_name)
-            {
-                call_buttons += link;
-            }
-        }
+        get_links();
         
         llListen(-25, "", "", "");
     }
@@ -124,6 +133,13 @@ default
         else if(llList2String(data, 0) == "CLOSE")
         {
             doors_close();
+        }
+    }
+    changed(integer chg)
+    {
+        if(chg & CHANGED_LINK)
+        {
+            get_links();
         }
     }
     http_response(key id, integer status, list meta, string body)
